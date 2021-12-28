@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Http.Features;
+
 var builder = WebApplication.CreateBuilder(args);
 
 // Add services to the container.
@@ -15,6 +17,10 @@ builder.Services.AddCors(options =>
         {
             corsPolicyBuilder.WithOrigins("http://localhost:3000");
         });
+});
+
+builder.Services.Configure<FormOptions>(options =>
+{
 });
 
 var app = builder.Build();
