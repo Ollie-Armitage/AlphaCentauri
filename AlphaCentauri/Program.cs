@@ -2,6 +2,12 @@ using Microsoft.AspNetCore.Http.Features;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Services.Configure<FormOptions>(options =>
+{
+    // Set the limit to 256 MB
+    options.MultipartBoundaryLengthLimit = 268435456;
+});
+
 // Add services to the container.
 
 builder.Services.AddControllers();
@@ -15,12 +21,10 @@ builder.Services.AddCors(options =>
     options.AddPolicy(name: corsPolicy,
         corsPolicyBuilder =>
         {
-            corsPolicyBuilder.WithOrigins("http://localhost:3000");
+            corsPolicyBuilder.WithOrigins("http://localhost:3000", 
+                    "https://localhost:3000")
+                .AllowAnyMethod();
         });
-});
-
-builder.Services.Configure<FormOptions>(options =>
-{
 });
 
 var app = builder.Build();

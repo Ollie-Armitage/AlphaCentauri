@@ -1,10 +1,13 @@
 ﻿using System.Globalization;
 using System.Net;
+using System.Text;
 using AlphaCentauri.Helpers;
+using AlphaCentauri.Models;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.AspNetCore.WebUtilities;
+using Microsoft.Extensions.Options;
 using Microsoft.Net.Http.Headers;
 
 namespace AlphaCentauri.Controllers;
@@ -18,9 +21,9 @@ public class UploadController : ControllerBase
     private readonly List<string> _permittedExtensions = new List<string>{ "doc", "docx"};
     private const int _fileSizeLimit = 1024 * 1024 * 100;
 
-    public UploadController(FormOptions defaultFormOptions)
+    public UploadController(IOptions<FormOptions> defaultFormOptions)
     {
-        _defaultFormOptions = defaultFormOptions;
+        _defaultFormOptions = defaultFormOptions.Value;
     }
 
     [HttpPost]
@@ -168,9 +171,14 @@ public class UploadController : ControllerBase
             UploadDT = DateTime.UtcNow
         };
 
-        _context.File.Add(file);
-        await _context.SaveChangesAsync();
+        // _context.File.Add(file);
+        // await _context.SaveChangesAsync();
 
-        return Created(nameof(StreamingController), null);
+        return Created(nameof(UploadController), null);
+    }
+
+    private Encoding GetEncoding(MultipartSection section)
+    {
+        throw new NotImplementedException();
     }
 }
