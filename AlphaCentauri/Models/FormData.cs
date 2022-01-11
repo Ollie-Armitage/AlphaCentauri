@@ -2,5 +2,5 @@
 
 public class FormData
 {
-    public object Note { get; set; }
+    public string Note { get; set; }
 }

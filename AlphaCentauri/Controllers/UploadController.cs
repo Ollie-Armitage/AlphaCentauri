@@ -18,7 +18,7 @@ namespace AlphaCentauri.Controllers;
 public class UploadController : ControllerBase
 {
     private readonly FormOptions _defaultFormOptions;
-    private readonly List<string> _permittedExtensions = new List<string>{ "doc", "docx"};
+    private readonly string[] _permittedExtensions = { ".doc", ".docx", ".jpg" };
     private const int _fileSizeLimit = 1024 * 1024 * 100;
 
     public UploadController(IOptions<FormOptions> defaultFormOptions)
@@ -177,8 +177,16 @@ public class UploadController : ControllerBase
         return Created(nameof(UploadController), null);
     }
 
-    private Encoding GetEncoding(MultipartSection section)
+    private static Encoding GetEncoding(MultipartSection section)
     {
-        throw new NotImplementedException();
+        var hasMediaTypeHeader = 
+            MediaTypeHeaderValue.TryParse(section.ContentType, out var mediaType);
+        
+        if (!hasMediaTypeHeader || Encoding.UTF8.Equals(mediaType.Encoding))
+        {
+            return Encoding.UTF8;
+        }
+
+        return mediaType.Encoding;
     }
 }
