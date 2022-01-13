@@ -18,15 +18,16 @@ namespace AlphaCentauri.Controllers;
 public class UploadController : ControllerBase
 {
     private readonly FormOptions _defaultFormOptions;
-    private readonly string[] _permittedExtensions = { ".doc", ".docx", ".jpg" };
-    private const int _fileSizeLimit = 1024 * 1024 * 100;
+    private readonly AppOptions _appOptions;
 
-    public UploadController(IOptions<FormOptions> defaultFormOptions)
+    public UploadController(IOptions<FormOptions> defaultFormOptions, IOptions<AppOptions> appOptions)
     {
         _defaultFormOptions = defaultFormOptions.Value;
+        _appOptions = appOptions.Value;
     }
 
     [HttpPost]
+    [DisableRequestSizeLimit]
     public async Task<IActionResult> Post()
     {
         if (!MultipartRequestHelper.IsMultipartContentType(Request.ContentType))
@@ -49,84 +50,33 @@ public class UploadController : ControllerBase
             _defaultFormOptions.MultipartBoundaryLengthLimit);
         var reader = new MultipartReader(boundary, HttpContext.Request.Body);
 
+        
+        var uploadModel = new UploadModel();
+        
         var section = await reader.ReadNextSectionAsync();
-
         while (section != null)
         {
             var hasContentDispositionHeader = 
                 ContentDispositionHeaderValue.TryParse(
                     section.ContentDisposition, out var contentDisposition);
-
+            
             if (hasContentDispositionHeader)
             {
                 if (MultipartRequestHelper
                     .HasFileContentDisposition(contentDisposition))
                 {
-                    untrustedFileNameForStorage = contentDisposition.FileName.Value;
-                    // Don't trust the file name sent by the client. To display
-                    // the file name, HTML-encode the value.
-                    trustedFileNameForDisplay = WebUtility.HtmlEncode(
-                            contentDisposition.FileName.Value);
-
-                    streamedFileContent = 
-                        await FileHelper.ProcessStreamedFile(section, contentDisposition, 
-                            ModelState, _permittedExtensions, _fileSizeLimit);
-
-                    if (!ModelState.IsValid)
-                    {
-                        return BadRequest(ModelState);
-                    }
+                    uploadModel.Files.Add(await FileHelper.BuildFileModel(contentDisposition, section, ModelState, _appOptions));
                 }
                 else if (MultipartRequestHelper
                     .HasFormDataContentDisposition(contentDisposition))
                 {
-                    // Don't limit the key name length because the 
-                    // multipart headers length limit is already in effect.
-                    var key = HeaderUtilities
-                        .RemoveQuotes(contentDisposition.Name).Value;
-                    var encoding = GetEncoding(section);
-
-                    if (encoding == null)
-                    {
-                        ModelState.AddModelError("File", 
-                            $"The request couldn't be processed (Error 2).");
-                        // Log error
-
-                        return BadRequest(ModelState);
-                    }
-
-                    using (var streamReader = new StreamReader(
-                        section.Body,
-                        encoding,
-                        detectEncodingFromByteOrderMarks: true,
-                        bufferSize: 1024,
-                        leaveOpen: true))
-                    {
-                        // The value length limit is enforced by 
-                        // MultipartBodyLengthLimit
-                        var value = await streamReader.ReadToEndAsync();
-
-                        if (string.Equals(value, "undefined", 
-                            StringComparison.OrdinalIgnoreCase))
-                        {
-                            value = string.Empty;
-                        }
-
-                        formAccumulator.Append(key, value);
-
-                        if (formAccumulator.ValueCount > 
-                            _defaultFormOptions.ValueCountLimit)
-                        {
-                            // Form key count limit of 
-                            // _defaultFormOptions.ValueCountLimit 
-                            // is exceeded.
-                            ModelState.AddModelError("File", 
-                                $"The request couldn't be processed (Error 3).");
-                            // Log error
-
-                            return BadRequest(ModelState);
-                        }
-                    }
+                    uploadModel.FormAccumulator = await FormHelper.AddFormData(uploadModel.FormAccumulator, contentDisposition, section,
+                        ModelState, _defaultFormOptions.ValueCountLimit);
+                }
+                
+                if (!ModelState.IsValid)
+                {
+                    return BadRequest(ModelState);
                 }
             }
 
@@ -139,7 +89,7 @@ public class UploadController : ControllerBase
         var formData = new FormData();
         var formValueProvider = new FormValueProvider(
             BindingSource.Form,
-            new FormCollection(formAccumulator.GetResults()),
+            new FormCollection(uploadModel.FormAccumulator.GetResults()),
             CultureInfo.CurrentCulture);
         var bindingSuccessful = await TryUpdateModelAsync(formData, prefix: "",
             valueProvider: formValueProvider);
@@ -162,31 +112,29 @@ public class UploadController : ControllerBase
         // For more information, see the topic that accompanies 
         // this sample app.
 
-        var file = new AppFile()
+        foreach (var file in uploadModel.Files)
         {
-            Content = streamedFileContent,
-            UntrustedName = untrustedFileNameForStorage,
-            Note = formData.Note,
-            Size = streamedFileContent.Length, 
-            UploadDT = DateTime.UtcNow
-        };
+            new AppFile()
+            {
+                Content = streamedFileContent,
+                UntrustedName = untrustedFileNameForStorage,
+                Note = formData.Note,
+                Size = streamedFileContent.Length, 
+                UploadDT = DateTime.UtcNow
+            };
+
+
+            await using (var targetStream = System.IO.File.Create(Path.Combine(_appOptions.QuarantinePath, file.UntrustedName)))
+            {
+                await targetStream.WriteAsync(file.FileContent);
+            }
+        }
+        
+
 
         // _context.File.Add(file);
         // await _context.SaveChangesAsync();
 
         return Created(nameof(UploadController), null);
-    }
-
-    private static Encoding GetEncoding(MultipartSection section)
-    {
-        var hasMediaTypeHeader = 
-            MediaTypeHeaderValue.TryParse(section.ContentType, out var mediaType);
-        
-        if (!hasMediaTypeHeader || Encoding.UTF8.Equals(mediaType.Encoding))
-        {
-            return Encoding.UTF8;
-        }
-
-        return mediaType.Encoding;
     }
 }
