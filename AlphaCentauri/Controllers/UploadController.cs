@@ -39,20 +39,13 @@ public class UploadController : ControllerBase
             return BadRequest(ModelState);
         }
 
-        // Accumulate the form data key-value pairs in the request (formAccumulator).
-        var formAccumulator = new KeyValueAccumulator();
-        var trustedFileNameForDisplay = string.Empty;
-        var untrustedFileNameForStorage = string.Empty;
-        var streamedFileContent = Array.Empty<byte>();
-
         var boundary = MultipartRequestHelper.GetBoundary(
             MediaTypeHeaderValue.Parse(Request.ContentType),
             _defaultFormOptions.MultipartBoundaryLengthLimit);
-        var reader = new MultipartReader(boundary, HttpContext.Request.Body);
 
+        List<FileModel> files = new List<FileModel>(); 
         
-        var uploadModel = new UploadModel();
-        
+        var reader = new MultipartReader(boundary, HttpContext.Request.Body);
         var section = await reader.ReadNextSectionAsync();
         while (section != null)
         {
@@ -65,75 +58,23 @@ public class UploadController : ControllerBase
                 if (MultipartRequestHelper
                     .HasFileContentDisposition(contentDisposition))
                 {
-                    uploadModel.Files.Add(await FileHelper.BuildFileModel(contentDisposition, section, ModelState, _appOptions));
+                    files.Add(await FileHelper.BuildFileModel(contentDisposition, section, ModelState, _appOptions));
                 }
-                else if (MultipartRequestHelper
-                    .HasFormDataContentDisposition(contentDisposition))
-                {
-                    uploadModel.FormAccumulator = await FormHelper.AddFormData(uploadModel.FormAccumulator, contentDisposition, section,
-                        ModelState, _defaultFormOptions.ValueCountLimit);
-                }
-                
+
                 if (!ModelState.IsValid)
                 {
                     return BadRequest(ModelState);
                 }
             }
-
-            // Drain any remaining section body that hasn't been consumed and
-            // read the headers for the next section.
+            
             section = await reader.ReadNextSectionAsync();
         }
 
-        // Bind form data to the model
-        var formData = new FormData();
-        var formValueProvider = new FormValueProvider(
-            BindingSource.Form,
-            new FormCollection(uploadModel.FormAccumulator.GetResults()),
-            CultureInfo.CurrentCulture);
-        var bindingSuccessful = await TryUpdateModelAsync(formData, prefix: "",
-            valueProvider: formValueProvider);
-
-        if (!bindingSuccessful)
+        foreach (var file in files)
         {
-            ModelState.AddModelError("File", 
-                "The request couldn't be processed (Error 5).");
-            // Log error
-
-            return BadRequest(ModelState);
+            await using var targetStream = System.IO.File.Create(Path.Combine(_appOptions.QuarantinePath, file.UntrustedName));
+            await targetStream.WriteAsync(file.FileContent);
         }
-
-        // **WARNING!**
-        // In the following example, the file is saved without
-        // scanning the file's contents. In most production
-        // scenarios, an anti-virus/anti-malware scanner API
-        // is used on the file before making the file available
-        // for download or for use by other systems. 
-        // For more information, see the topic that accompanies 
-        // this sample app.
-
-        foreach (var file in uploadModel.Files)
-        {
-            new AppFile()
-            {
-                Content = streamedFileContent,
-                UntrustedName = untrustedFileNameForStorage,
-                Note = formData.Note,
-                Size = streamedFileContent.Length, 
-                UploadDT = DateTime.UtcNow
-            };
-
-
-            await using (var targetStream = System.IO.File.Create(Path.Combine(_appOptions.QuarantinePath, file.UntrustedName)))
-            {
-                await targetStream.WriteAsync(file.FileContent);
-            }
-        }
-        
-
-
-        // _context.File.Add(file);
-        // await _context.SaveChangesAsync();
 
         return Created(nameof(UploadController), null);
     }

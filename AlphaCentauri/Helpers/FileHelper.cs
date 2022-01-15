@@ -48,14 +48,23 @@ public class FileHelper
         public static async Task<FileModel> BuildFileModel(ContentDispositionHeaderValue contentDisposition, 
             MultipartSection section, ModelStateDictionary modelState, AppOptions appOptions)
         {
-            return new FileModel
-            {
-                UntrustedName = contentDisposition.FileName.Value,
-                TrustedName = WebUtility.HtmlEncode(contentDisposition.FileName.Value),
-                FileContent = await ProcessStreamedFile(section, contentDisposition,
-                    modelState, appOptions.PermittedExtensions, appOptions.FileSizeLimit)
-            };
 
+            var fileModel = new FileModel();
+            
+            var fileContent = await ProcessStreamedFile(section, contentDisposition,
+                modelState, appOptions.PermittedExtensions, appOptions.FileSizeLimit);
+
+            if (fileContent.Length != 0)
+            {
+                return new FileModel
+                {
+                    UntrustedName = contentDisposition.FileName.Value,
+                    TrustedName = WebUtility.HtmlEncode(contentDisposition.FileName.Value),
+                    FileContent = fileContent
+                };
+            }
+
+            return null;
         }
 
         // **WARNING!**
